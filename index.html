@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word Wheel</title>
+<style>
+  :root {
+    --ink: #14213d;
+    --board: #1d2e7a;
+    --board-deep: #121c52;
+    --white: #ffffff;
+    --accent: #ffd23f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Avenir Next", "Trebuchet MS", system-ui, sans-serif;
+    color: var(--white);
+    background: radial-gradient(ellipse at 50% 30%, var(--board) 0%, var(--board-deep) 80%);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 20px 16px 28px;
+    gap: 16px;
+  }
+  h1 { margin: 0; font-size: clamp(22px, 3.5vw, 34px); font-weight: 800; letter-spacing: -0.01em; }
+  .stage { position: relative; width: min(78vmin, 640px); aspect-ratio: 1; }
+  canvas { width: 100%; height: 100%; display: block; cursor: pointer; border-radius: 50%; }
+  .pointer {
+    position: absolute; left: 50%; top: -6px; transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 20px solid transparent; border-right: 20px solid transparent;
+    border-top: 38px solid var(--white);
+    filter: drop-shadow(0 3px 0 rgba(0,0,0,0.35));
+    pointer-events: none;
+  }
+  button {
+    font: inherit; font-weight: 800; cursor: pointer; border: 0; border-radius: 14px;
+    background: var(--accent); color: var(--ink);
+    padding: 14px 40px; font-size: clamp(18px, 2.4vw, 24px);
+    box-shadow: 0 5px 0 #b8941a;
+    transition: transform .08s ease, box-shadow .08s ease;
+  }
+  button:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 #b8941a; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--white); box-shadow: none; border: 2px solid rgba(255,255,255,.4); padding: 8px 18px; font-size: 14px; }
+  :focus-visible { outline: 4px solid var(--white); outline-offset: 3px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: center; }
+  label.opt { display: flex; align-items: center; gap: 8px; font-size: 15px; cursor: pointer; }
+  label.opt input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .words { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 720px; }
+  .chip { padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 15px; color: var(--ink); }
+  .chip.used { opacity: .35; text-decoration: line-through; }
+
+  /* Full-screen word */
+  #overlay {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    color: var(--ink); padding: 24px; z-index: 10; overflow: hidden;
+  }
+  #overlay.open { display: flex; }
+  #overlay .content {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 3.5vh;
+  }
+  #overlay .prompt { font-size: clamp(20px, 3.2vw, 36px); font-weight: 700; margin: 0; }
+  #bigWord { font-size: clamp(48px, 15vw, 200px); font-weight: 800; line-height: 1; margin: 0; letter-spacing: -0.02em; word-break: break-word; }
+  #time { font-size: clamp(44px, 9vw, 110px); font-weight: 800; font-variant-numeric: tabular-nums; margin: 0; }
+  #time.low { color: #b3001b; }
+  .bar { width: min(70vw, 700px); height: 16px; background: rgba(20,33,61,.18); border-radius: 8px; overflow: hidden; }
+  .bar > div { height: 100%; width: 100%; background: var(--ink); transform-origin: left; }
+  #mic { margin: 0; font-size: clamp(14px, 1.8vw, 20px); font-weight: 600; min-height: 1.4em; opacity: .75; }
+  #overlay button { background: var(--ink); color: var(--white); box-shadow: 0 5px 0 #000; }
+  #overlay button#okBtn { background: var(--white); color: var(--ink); box-shadow: 0 5px 0 rgba(20,33,61,.35); }
+  #overlay .btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  #overlay .prompt.praise { font-size: clamp(36px, 6.5vw, 84px); font-weight: 800; }
+  #sentence {
+    margin: 0; max-width: min(86vw, 900px);
+    background: var(--white); color: var(--ink);
+    padding: 18px 30px; border-radius: 26px;
+    font-size: clamp(22px, 3.4vw, 40px); font-weight: 700; line-height: 1.25;
+    box-shadow: 0 6px 0 rgba(20,33,61,.25);
+  }
+  #sentence mark { background: var(--wc, var(--accent)); color: var(--ink); padding: 0 .18em; border-radius: 8px; }
+  #overlay { overflow-y: auto; align-items: flex-start; }
+  #overlay .content { margin: auto; }
+  #overlay.compact .content { gap: 1.8vh; }
+  #overlay.compact #bigWord { font-size: clamp(36px, 8vw, 110px); }
+  #overlay.compact #time { font-size: clamp(30px, 5vw, 64px); }
+  #overlay.compact .prompt.praise { font-size: clamp(30px, 5vw, 64px); }
+  #time.over { font-size: clamp(40px, 8vw, 100px); }
+  #typeBox { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #typeBox[hidden] { display: none; }
+  .typeRow { display: flex; gap: 10px; align-items: center; }
+  #typeInput { width: min(70vw, 720px); font: inherit; font-size: clamp(20px, 3vw, 34px); font-weight: 700; padding: 12px 20px; border-radius: 18px; border: 3px solid var(--ink); background: var(--white); color: var(--ink); }
+  #overlay #suggestBtn { background: var(--white); color: var(--ink); font-size: clamp(18px, 2.6vw, 30px); padding: 8px 22px; box-shadow: 0 4px 0 rgba(20,33,61,.35); }
+  #overlay #suggestBtn[hidden] { display: none; }
+  #typeHint { margin: 0; font-weight: 700; min-height: 1.3em; }
+  .keyrow { font-size: 13px; opacity: .8; display: flex; gap: 8px; align-items: center; }
+  .keyrow input { width: min(60vw, 300px); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.1); color: #fff; }
+  #ai { max-width: min(86vw, 900px); text-align: left; background: rgba(20,33,61,.92); color: #fff; border-radius: 22px; padding: 16px 26px; font-size: clamp(16px, 2.2vw, 26px); line-height: 1.35; }
+  #ai p { margin: 4px 0 10px; }
+  #ai ul { margin: 4px 0 0; padding-left: 1.2em; }
+  #ai li { margin: 4px 0; }
+  #ai .lbl { font-size: .6em; letter-spacing: .08em; text-transform: uppercase; opacity: .7; font-weight: 800; }
+  #ai mark { background: var(--wc, var(--accent)); color: var(--ink); padding: 0 .15em; border-radius: 6px; }
+  @media (prefers-reduced-motion: no-preference) {
+    #time.over { animation: swell 1.8s ease-in-out infinite; }
+    @keyframes swell { 0%, 100% { transform: scale(.94); } 50% { transform: scale(1.12); } }
+  }
+
+  /* Speech bubbles */
+  .bubbles { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .bubble {
+    position: absolute; bottom: 5vh; transform: translateX(-50%);
+    max-width: min(82vw, 840px);
+    background: rgba(255,255,255,.93); color: var(--ink);
+    padding: 14px 26px; border-radius: 30px;
+    font-size: clamp(20px, 3vw, 34px); font-weight: 700; line-height: 1.25;
+    box-shadow: 0 6px 0 rgba(20,33,61,.2);
+  }
+  .bubble::after {
+    content: ""; position: absolute; bottom: -12px; left: 40px;
+    border: 12px solid transparent; border-top-color: rgba(255,255,255,.93); border-bottom: 0;
+  }
+  .bubble.live { opacity: .85; }
+  .bubble mark { background: var(--wc, var(--accent)); color: var(--ink); padding: 0 .18em; border-radius: 8px; }
+  .bubble.rise { animation: rise 6.5s ease-out forwards; }
+  @keyframes rise {
+    from { transform: translate(-50%, 0) scale(1); opacity: 1; }
+    75%  { opacity: 1; }
+    to   { transform: translate(-50%, -88vh) scale(.92); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #time.low { animation: beat 1s ease-in-out infinite; }
+    @keyframes beat { 50% { transform: scale(1.12); } }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bubble.rise { animation: fadeout 4s forwards; }
+    @keyframes fadeout { 70% { opacity: 1; } to { opacity: 0; } }
+  }
+</style>
+</head>
+<body>
+
+<h1>Word Wheel</h1>
+
+<div class="stage">
+  <canvas id="wheel" width="900" height="900" aria-label="Word wheel. Press Spin to pick a word."></canvas>
+  <div class="pointer"></div>
+</div>
+
+<div class="controls">
+  <button id="spinBtn">Spin</button>
+  <label class="opt"><input type="checkbox" id="noRepeat" checked> Don't repeat words</label>
+  <button class="ghost" id="resetBtn">Start over</button>
+</div>
+
+<div class="words" id="chips"></div>
+<label class="keyrow">Groq key (optional, for AI feedback) <input type="password" id="keyInput" placeholder="gsk_..."></label>
+
+<div id="overlay" role="dialog" aria-modal="true" aria-live="polite">
+  <div class="bubbles" id="bubbles"></div>
+  <div class="content">
+    <p class="prompt" id="prompt">Say a sentence with</p>
+    <p id="bigWord"></p>
+    <p id="time">20</p>
+    <div class="bar"><div id="barFill"></div></div>
+    <p id="mic"></p>
+    <div id="typeBox" hidden>
+      <button id="suggestBtn" type="button" hidden></button>
+      <div class="typeRow">
+        <input id="typeInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your sentence…">
+        <button id="submitBtn" type="button">Check</button>
+      </div>
+      <p id="typeHint"></p>
+    </div>
+    <p id="sentence" hidden></p>
+    <div id="ai" hidden></div>
+    <div class="btns">
+      <button id="okBtn">OK</button>
+      <button id="typeBtn">Type</button>
+      <button id="nextBtn">Next word</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== Edit your words here =====
+const WORDS = ["upper secondary", "anxiety", "extracurricular", "boarding school", "perfectionist", "canteen", "courtyard", "quiz", "staffroom", "volunteer", "proud", "introvert", "national holiday"];
+const SECONDS = 20;
+const AI_MODEL = "openai/gpt-oss-120b";   // Groq model for AI feedback
+const VOLUME = 0.8;      // master volume, 0 to 1
+// ================================
+
+const COLORS = ["#ffd23f", "#ff6b81", "#3ddc97", "#5bc0eb", "#b388ff", "#ff9f1c", "#2ec4b6", "#f78fb3", "#9be564", "#ff8a65", "#7ae7ff", "#e0aaff", "#a3b8ff"];
+const ALL = WORDS.map((w, i) => ({ word: w, color: COLORS[i % COLORS.length] }));
+const TAU = Math.PI * 2;
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const canvas = document.getElementById("wheel");
+const ctx = canvas.getContext("2d");
+const spinBtn = document.getElementById("spinBtn");
+const noRepeatEl = document.getElementById("noRepeat");
+const chipsEl = document.getElementById("chips");
+const overlay = document.getElementById("overlay");
+const bubblesEl = document.getElementById("bubbles");
+const bigWord = document.getElementById("bigWord");
+const timeEl = document.getElementById("time");
+const barFill = document.getElementById("barFill");
+const micEl = document.getElementById("mic");
+const nextBtn = document.getElementById("nextBtn");
+const okBtn = document.getElementById("okBtn");
+const promptEl = document.getElementById("prompt");
+const sentenceEl = document.getElementById("sentence");
+
+const typeBox = document.getElementById("typeBox");
+const typeInput = document.getElementById("typeInput");
+const typeHint = document.getElementById("typeHint");
+const suggestBtn = document.getElementById("suggestBtn");
+const submitBtn = document.getElementById("submitBtn");
+const typeBtn = document.getElementById("typeBtn");
+const aiEl = document.getElementById("ai");
+const keyInput = document.getElementById("keyInput");
+
+let wordRe = null, done = false, sentenceShown = false, startedAt = 0;
+let overtime = false, aiDone = false, aiTimer = null, aiReq = 0, sentenceText = "", sugg = null;
+
+let used = new Set();
+let rot = 0;
+let spinning = false;
+let timerId = null;
+let currentWord = "";
+
+function active() {
+  return noRepeatEl.checked ? ALL.filter(w => !used.has(w.word)) : ALL;
+}
+
+// ---------- Sound (soft, low, wooden clack like a real wheel) ----------
+let audioCtx, master, noiseBuf;
+function ac() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    master = audioCtx.createGain();
+    master.gain.value = VOLUME;
+    master.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+function getNoise(c) {
+  if (!noiseBuf) {
+    const len = Math.floor(c.sampleRate * 0.03);
+    noiseBuf = c.createBuffer(1, len, c.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+function tick() {
+  try {
+    const c = ac(), t = c.currentTime;
+    // dry "tak": short band-passed noise
+    const src = c.createBufferSource(); src.buffer = getNoise(c);
+    const bp = c.createBiquadFilter(); bp.type = "bandpass";
+    bp.frequency.value = 650 + Math.random() * 200; bp.Q.value = 0.8;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+    src.connect(bp); bp.connect(g); g.connect(master); src.start(t);
+    // low wooden thump
+    const o = c.createOscillator(), og = c.createGain();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(170 + Math.random() * 30, t);
+    o.frequency.exponentialRampToValueAtTime(90, t + 0.06);
+    og.gain.setValueAtTime(0.3, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    o.connect(og); og.connect(master); o.start(t); o.stop(t + 0.08);
+  } catch (e) {}
+}
+function soft(freq, dur, type, vol, delay, cutoff) {
+  try {
+    const c = ac(), t0 = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter();
+    o.type = type; o.frequency.value = freq;
+    lp.type = "lowpass"; lp.frequency.value = cutoff;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(lp); lp.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  } catch (e) {}
+}
+const chime = () => { soft(392, 0.5, "triangle", 0.18, 0, 1800); soft(523, 0.55, "triangle", 0.18, 0.1, 1800); soft(659, 0.7, "triangle", 0.18, 0.2, 1800); };
+// Gentle overtime drone: two low sine notes (A minor), slow swell, no harshness
+let tension = null;
+function startTension() {
+  if (tension) return;
+  try {
+    const c = ac(), t = c.currentTime;
+    const out = c.createGain(); out.gain.setValueAtTime(0.0001, t); out.gain.exponentialRampToValueAtTime(0.06, t + 1.5);
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420;
+    const lfoGain = c.createGain(); lfoGain.gain.setValueAtTime(0, t); lfoGain.gain.linearRampToValueAtTime(0.025, t + 2);
+    const lfo = c.createOscillator(); lfo.frequency.value = 0.5; lfo.connect(lfoGain); lfoGain.connect(out.gain);
+    const o1 = c.createOscillator(), o2 = c.createOscillator();
+    o1.frequency.value = 110; o2.frequency.value = 130.8;
+    o1.connect(lp); o2.connect(lp); lp.connect(out); out.connect(master);
+    [o1, o2, lfo].forEach(n => n.start(t));
+    tension = { out, lfoGain, nodes: [o1, o2, lfo] };
+  } catch (e) {}
+}
+function stopTension() {
+  if (!tension) return;
+  const { out, lfoGain, nodes } = tension; tension = null;
+  try {
+    const t = ac().currentTime;
+    lfoGain.gain.cancelScheduledValues(t); lfoGain.gain.setValueAtTime(0, t);
+    out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(Math.max(out.gain.value, 0.0001), t);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    nodes.forEach(n => n.stop(t + 0.45));
+  } catch (e) {}
+}
+
+// ---------- Drawing ----------
+function draw() {
+  const pool = active();
+  const W = canvas.width, cx = W / 2, cy = W / 2, R = W / 2 - 10;
+  ctx.clearRect(0, 0, W, W);
+
+  if (pool.length === 0) {
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU);
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "800 54px 'Avenir Next', 'Trebuchet MS', sans-serif";
+    ctx.fillText("All words used", cx, cy - 20);
+    ctx.font = "600 30px 'Avenir Next', 'Trebuchet MS', sans-serif";
+    ctx.fillText("Press Start over", cx, cy + 36);
+    return;
+  }
+
+  const seg = TAU / pool.length;
+  pool.forEach((item, i) => {
+    const a0 = rot + i * seg, a1 = a0 + seg;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
+    ctx.fillStyle = item.color; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = "#14213d"; ctx.stroke();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(a0 + seg / 2);
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#14213d";
+    let size = pool.length > 8 ? 36 : 46;
+    const maxW = R - 130;
+    do { ctx.font = "800 " + size + "px 'Avenir Next', 'Trebuchet MS', sans-serif"; size -= 2; }
+    while (ctx.measureText(item.word).width > maxW && size > 14);
+    ctx.fillText(item.word, R - 28, 0);
+    ctx.restore();
+  });
+
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.lineWidth = 8; ctx.strokeStyle = "#14213d"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 62, 0, TAU); ctx.fillStyle = "#14213d"; ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "800 30px 'Avenir Next', 'Trebuchet MS', sans-serif";
+  ctx.fillText("SPIN", cx, cy + 1);
+}
+
+function renderChips() {
+  chipsEl.innerHTML = "";
+  ALL.forEach(w => {
+    const s = document.createElement("span");
+    s.className = "chip" + (noRepeatEl.checked && used.has(w.word) ? " used" : "");
+    s.style.background = w.color;
+    s.textContent = w.word;
+    chipsEl.appendChild(s);
+  });
+  spinBtn.disabled = active().length === 0;
+}
+
+function refresh() { draw(); renderChips(); }
+
+// ---------- Speech bubbles (speech to text) ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false, live = null, micAsked = false;
+
+async function askMic() {
+  if (micAsked || !navigator.mediaDevices) return;
+  micAsked = true;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+  } catch (e) {}
+}
+
+// Matches the word plus simple variants (plural, y/ies, US spelling of "ll")
+function buildRe(word) {
+  const w = word.toLowerCase();
+  const v = new Set([w, w + "s", w + "es"]);
+  if (w.endsWith("ies")) v.add(w.slice(0, -3) + "y");
+  if (w.endsWith("y")) v.add(w.slice(0, -1) + "ies");
+  if (w.endsWith("es")) v.add(w.slice(0, -2));
+  if (w.endsWith("s")) v.add(w.slice(0, -1));
+  if (w.includes("ll")) v.add(w.replace("ll", "l"));
+  return new RegExp("\\b(" + [...v].join("|") + ")\\b", "i");
+}
+
+const POOL = {
+  fast: ["Lightning fast!", "Boom! Nailed it!", "Quick and clean!", "Speedy and smart!"],
+  normal: ["Great job!", "Well done!", "Excellent!", "Nice sentence!", "That's how it's done!", "Teacher approved!", "Top-notch English!", "Smooth sentence!"],
+  late: ["Better late than never!", "Worth the wait!", "You made it!", "Great comeback!"]
+};
+
+function finish() {
+  if (done) return;
+  done = true;
+  clearInterval(timerId);
+  stopTension();
+  stopListening(false);
+  const elapsed = Math.round((Date.now() - startedAt) / 1000);
+  const p = overtime ? POOL.late : elapsed <= 10 ? POOL.fast : POOL.normal;
+  promptEl.textContent = p[Math.floor(Math.random() * p.length)];
+  promptEl.classList.add("praise");
+  timeEl.classList.remove("low", "over");
+  timeEl.textContent = overtime ? "Done!" : "Done in " + elapsed + "s";
+  micEl.textContent = "";
+  okBtn.hidden = true; typeBtn.hidden = true; typeBox.hidden = true;
+  overlay.classList.add("compact");
+  chime();
+  aiTimer = setTimeout(runAI, sentenceShown ? 0 : 1500);
+}
+
+function showSentence(txt) {
+  sentenceShown = true; sentenceText = txt;
+  if (live) { live.remove(); live = null; }
+  fillBubble(sentenceEl, txt);
+  sentenceEl.hidden = false;
+  finish();
+  if (aiTimer) runAI();
+}
+
+// ---------- Groq feedback + 3 extra example sentences ----------
+function mk(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
+
+function runAI() {
+  clearTimeout(aiTimer); aiTimer = null;
+  if (aiDone) return;
+  aiDone = true;
+  const key = keyInput.value.trim();
+  if (!key) return;
+  const req = ++aiReq, word = currentWord, s = sentenceShown ? sentenceText : "";
+  aiEl.hidden = false; aiEl.textContent = "Thinking…";
+  const prompt = 'You are a friendly English teacher helping secondary school students (CEFR A2-B1) practise vocabulary. Target word: "' + word + '". ' +
+    (s ? 'The student said: "' + s + '". ' : 'The student gave no sentence. ') +
+    'Reply with ONLY valid JSON, no markdown: {"feedback": "...", "examples": ["...", "...", "..."]}. ' +
+    (s ? '"feedback": 1-2 short, simple, encouraging sentences; if there is a grammar mistake or the word is misused, give the corrected sentence; ignore speech-recognition spelling or punctuation slips. ' : '"feedback": an empty string. ') +
+    '"examples": exactly 3 different natural sentences using "' + word + '" (any form), each under 14 words, simple vocabulary, different situations.';
+  fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: AI_MODEL, messages: [{ role: "user", content: prompt }], temperature: 0.5 })
+  }).then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => {
+      if (req !== aiReq) return;
+      const raw = (d.choices[0].message.content || "").trim().replace(/^```(json)?/, "").replace(/```$/, "").trim();
+      const j = JSON.parse(raw);
+      aiEl.textContent = "";
+      if (j.feedback) aiEl.append(mk("div", "lbl", "AI feedback"), mk("p", "", j.feedback));
+      aiEl.append(mk("div", "lbl", "3 more ideas"));
+      const ul = mk("ul");
+      (j.examples || []).slice(0, 3).forEach(x => { const li = mk("li"); fillBubble(li, x); ul.append(li); });
+      aiEl.append(ul);
+    })
+    .catch(e => { if (req === aiReq) aiEl.textContent = e === 401 ? "Groq key not accepted." : "AI feedback unavailable right now."; });
+}
+
+// ---------- Typing with spelling suggestion (local fuzzy match, instant, no internet) ----------
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function subseq(c, t) { let i = 0; for (const ch of t) if (ch === c[i]) i++; return i === c.length; }
+function close(c, t) {
+  if (c.length < 3 || c === t) return false;
+  if (c[0] === t[0] && (t.startsWith(c) || (c.length >= 4 && subseq(c, t)))) return true;
+  return lev(c, t) <= (t.length >= 9 ? 3 : t.length >= 5 ? 2 : 1);
+}
+function findSuggestion(text) {
+  if (!text.trim() || wordRe.test(text)) return null;
+  const tn = currentWord.toLowerCase().replace(/[^a-z]/g, "");
+  const toks = [...text.matchAll(/\S+/g)];
+  for (let k = Math.min(toks.length, currentWord.split(" ").length); k >= 1; k--) {
+    const last = toks[toks.length - 1], a = toks[toks.length - k].index, b = last.index + last[0].length;
+    const cand = text.slice(a, b);
+    if (close(cand.toLowerCase().replace(/[^a-z]/g, ""), tn)) return { a, b, tail: (cand.match(/[^A-Za-z]*$/) || [""])[0] };
+  }
+  return null;
+}
+function updateSuggestion() {
+  typeHint.textContent = "";
+  sugg = findSuggestion(typeInput.value);
+  suggestBtn.hidden = !sugg;
+  if (sugg) suggestBtn.innerHTML = "Did you mean <b>" + currentWord + "</b>?";
+}
+function applySuggestion() {
+  if (!sugg) return;
+  const v = typeInput.value;
+  typeInput.value = v.slice(0, sugg.a) + currentWord + sugg.tail + v.slice(sugg.b);
+  typeInput.focus();
+  updateSuggestion();
+}
+function submitTyped() {
+  const txt = typeInput.value.trim();
+  if (!txt || done) return;
+  if (!wordRe.test(txt)) { typeHint.textContent = 'Use the word "' + currentWord + '" in your sentence.'; return; }
+  if (txt.split(/\s+/).length < 4) { typeHint.textContent = "Write a full sentence (4+ words)."; return; }
+  showSentence(txt);
+}
+
+function fillBubble(el, text) {
+  el.textContent = "";
+  const re = new RegExp(wordRe.source, "gi");
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    el.append(text.slice(last, m.index));
+    const mk = document.createElement("mark");
+    mk.textContent = m[0];
+    el.append(mk);
+    last = m.index + m[0].length;
+  }
+  el.append(text.slice(last));
+}
+
+function setLive(text) {
+  if (!live) {
+    live = document.createElement("div");
+    live.className = "bubble live";
+    live.style.left = (38 + Math.random() * 24) + "%";
+    bubblesEl.appendChild(live);
+  }
+  fillBubble(live, text);
+}
+
+function releaseLive() {
+  if (!live) return;
+  const el = live;
+  el.classList.remove("live");
+  el.classList.add("rise");
+  el.addEventListener("animationend", () => el.remove());
+  live = null;
+}
+
+function startListening() {
+  if (!SR) { micEl.textContent = "Speech bubbles need Chrome."; return; }
+  listening = true;
+  rec = new SR();
+  rec.lang = "en-US";
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onstart = () => { micEl.textContent = "Listening…"; };
+  rec.onresult = e => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i], txt = r[0].transcript.trim();
+      if (r.isFinal) {
+        if (txt) {
+          if (!sentenceShown && txt.split(/\s+/).length >= 4 && wordRe.test(txt)) showSentence(txt);
+          else { setLive(txt); releaseLive(); }
+        }
+      } else interim += txt + " ";
+    }
+    if (interim.trim()) setLive(interim.trim());
+  };
+  rec.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      listening = false;
+      micEl.textContent = "Allow the microphone to see sentences.";
+    } else if (e.error !== "no-speech" && e.error !== "aborted") {
+      micEl.textContent = "Mic problem: " + e.error;
+    }
+  };
+  rec.onend = () => { if (listening) { try { rec.start(); } catch (e) {} } };
+  try { rec.start(); } catch (e) {}
+}
+
+function stopListening(abort) {
+  listening = false;
+  if (!rec) return;
+  rec.onend = null;
+  try { abort ? rec.abort() : rec.stop(); } catch (e) {}
+}
+
+// ---------- Spin ----------
+function indexUnderPointer(n) {
+  const seg = TAU / n;
+  const rel = (((-Math.PI / 2 - rot) % TAU) + TAU) % TAU;
+  return Math.floor(rel / seg) % n;
+}
+
+function spin() {
+  if (spinning || overlay.classList.contains("open")) return;
+  const pool = active();
+  if (!pool.length) return;
+  ac(); askMic();
+  spinning = true; spinBtn.disabled = true;
+
+  const n = pool.length, seg = TAU / n;
+  const w = Math.floor(Math.random() * n);
+  const base = -Math.PI / 2 - (w + 0.5) * seg;
+  const minFinal = rot + TAU * 6;
+  const target = base + TAU * Math.ceil((minFinal - base) / TAU) + (Math.random() - 0.5) * seg * 0.6;
+
+  const start = rot, dur = reduceMotion ? 1200 : 5500, t0 = performance.now();
+  let lastIdx = indexUnderPointer(n);
+
+  function frame(now) {
+    const t = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - t, 4);
+    rot = start + (target - start) * e;
+    const idx = indexUnderPointer(n);
+    if (idx !== lastIdx) { tick(); lastIdx = idx; }
+    draw();
+    if (t < 1) requestAnimationFrame(frame);
+    else { spinning = false; showWord(pool[indexUnderPointer(n)]); }
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- Full-screen word + timer ----------
+function showWord(item) {
+  if (noRepeatEl.checked) used.add(item.word);
+  currentWord = item.word;
+  wordRe = buildRe(item.word);
+  done = false; sentenceShown = false; startedAt = Date.now();
+  promptEl.textContent = "Say a sentence with";
+  promptEl.classList.remove("praise");
+  sentenceEl.hidden = true; sentenceEl.textContent = "";
+  okBtn.hidden = false; typeBtn.hidden = false;
+  typeBox.hidden = true; typeInput.value = ""; typeHint.textContent = ""; suggestBtn.hidden = true; sugg = null;
+  aiEl.hidden = true; aiEl.textContent = ""; aiDone = false; sentenceText = "";
+  clearTimeout(aiTimer); aiTimer = null; aiReq++;
+  overtime = false; stopTension(); timeEl.classList.remove("over"); overlay.classList.remove("compact");
+  chime();
+  overlay.style.background = item.color;
+  overlay.style.setProperty("--wc", item.color);
+  bigWord.textContent = item.word;
+  timeEl.classList.remove("low");
+  micEl.textContent = "";
+  bubblesEl.innerHTML = "";
+  live = null;
+  overlay.classList.add("open");
+  nextBtn.focus();
+  startListening();
+
+  const end = Date.now() + SECONDS * 1000;
+  clearInterval(timerId);
+  const update = () => {
+    const left = Math.max(0, end - Date.now());
+    const secs = Math.ceil(left / 1000);
+    if (left > 0) {
+      timeEl.textContent = secs;
+      barFill.style.transform = "scaleX(" + (left / (SECONDS * 1000)) + ")";
+      timeEl.classList.toggle("low", secs <= 5);
+    } else {
+      clearInterval(timerId);
+      overtime = true;
+      timeEl.textContent = "Overtime";
+      timeEl.classList.remove("low"); timeEl.classList.add("over");
+      barFill.style.transform = "scaleX(0)";
+      soft(165, 0.9, "sine", 0.16, 0, 600);
+      startTension();
+    }
+  };
+  timerId = setInterval(update, 100);
+  update();
+}
+
+function closeOverlay() {
+  clearInterval(timerId);
+  stopTension();
+  clearTimeout(aiTimer); aiTimer = null; aiReq++;
+  overlay.classList.remove("compact");
+  stopListening(true);
+  bubblesEl.innerHTML = "";
+  live = null;
+  overlay.classList.remove("open");
+  spinBtn.disabled = false;
+  refresh();
+  spinBtn.focus();
+}
+
+// ---------- Wiring ----------
+spinBtn.onclick = spin;
+canvas.onclick = spin;
+nextBtn.onclick = closeOverlay;
+okBtn.onclick = finish;
+typeBtn.onclick = () => { typeBox.hidden = !typeBox.hidden; if (!typeBox.hidden) typeInput.focus(); };
+typeInput.addEventListener("input", updateSuggestion);
+typeInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); submitTyped(); }
+  else if (e.key === "Tab" && !suggestBtn.hidden) { e.preventDefault(); applySuggestion(); }
+});
+suggestBtn.onclick = applySuggestion;
+submitBtn.onclick = submitTyped;
+keyInput.value = localStorage.getItem("groq_api_key") || "";
+keyInput.addEventListener("input", () => localStorage.setItem("groq_api_key", keyInput.value));
+document.getElementById("resetBtn").onclick = () => { used.clear(); refresh(); };
+noRepeatEl.onchange = refresh;
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && e.target !== typeInput && overlay.classList.contains("open")) closeOverlay();
+});
+
+refresh();
+</script>
+</body>
+</html>
