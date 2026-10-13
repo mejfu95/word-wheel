@@ -103,6 +103,14 @@
   #ai li { margin: 4px 0; }
   #ai .lbl { font-size: .6em; letter-spacing: .08em; text-transform: uppercase; opacity: .7; font-weight: 800; }
   #ai mark { background: var(--wc, var(--accent)); color: var(--ink); padding: 0 .15em; border-radius: 6px; }
+  #help { max-width: min(86vw, 900px); background: var(--ink); color: #fff; border-radius: 22px; padding: 14px 26px; font-size: clamp(20px, 3vw, 36px); font-weight: 700; line-height: 1.35; }
+  #help p { margin: 4px 0 0; }
+  #help .lbl { font-size: .55em; letter-spacing: .08em; text-transform: uppercase; opacity: .7; font-weight: 800; }
+  #overlay #helpBtn { background: var(--white); color: var(--ink); box-shadow: 0 5px 0 rgba(20,33,61,.35); }
+  @media (prefers-reduced-motion: no-preference) {
+    #overlay #helpBtn { animation: blink 1s ease-in-out infinite; }
+    @keyframes blink { 50% { opacity: .35; } }
+  }
   @media (prefers-reduced-motion: no-preference) {
     #time.over { animation: swell 1.8s ease-in-out infinite; }
     @keyframes swell { 0%, 100% { transform: scale(.94); } 50% { transform: scale(1.12); } }
@@ -166,6 +174,7 @@
     <p id="time">20</p>
     <div class="bar"><div id="barFill"></div></div>
     <p id="mic"></p>
+    <div id="help" hidden></div>
     <div id="typeBox" hidden>
       <button id="suggestBtn" type="button" hidden></button>
       <div class="typeRow">
@@ -179,6 +188,7 @@
     <div class="btns">
       <button id="okBtn">OK</button>
       <button id="typeBtn">Type</button>
+      <button id="helpBtn" hidden>Need help?</button>
       <button id="nextBtn">Next word</button>
     </div>
   </div>
@@ -186,8 +196,9 @@
 
 <script>
 // ===== Edit your words here =====
-const WORDS = ["upper secondary", "anxious", "extracurricular", "boarding school", "canteen", "courtyard", "quiz", "staff room", "volunteer", "proud", "introvert", "national holiday"];
-const SECONDS = 20;
+const WORDS = ["upper secondary", "anxious", "extracurricular", "boarding school", "perfectionist", "canteen", "courtyard", "quiz", "staff room", "volunteer", "proud", "introvert"];
+const SECONDS = 30;
+const HELP_AT = 15;   // seconds before the blinking "Need help?" button appears
 const AI_MODEL = "openai/gpt-oss-120b";   // Groq model for AI feedback
 const VOLUME = 0.8;      // master volume, 0 to 1
 // ================================
@@ -221,6 +232,9 @@ const submitBtn = document.getElementById("submitBtn");
 const typeBtn = document.getElementById("typeBtn");
 const aiEl = document.getElementById("ai");
 const keyInput = document.getElementById("keyInput");
+const helpBtn = document.getElementById("helpBtn");
+const helpEl = document.getElementById("help");
+let helpUsed = false, helpReq = 0;
 
 let wordRe = null, done = false, sentenceShown = false, startedAt = 0;
 let overtime = false, aiDone = false, aiTimer = null, aiReq = 0, sentenceText = "", sugg = null;
@@ -400,6 +414,7 @@ function buildRe(word) {
   if (w.endsWith("es")) v.add(w.slice(0, -2));
   if (w.endsWith("s")) v.add(w.slice(0, -1));
   if (w.includes("ll")) v.add(w.replace("ll", "l"));
+  if (w.includes(" ")) v.add(w.replace(/ /g, ""));
   return new RegExp("\\b(" + [...v].join("|") + ")\\b", "i");
 }
 
@@ -416,13 +431,14 @@ function finish() {
   stopTension();
   stopListening(false);
   const elapsed = Math.round((Date.now() - startedAt) / 1000);
-  const p = overtime ? POOL.late : elapsed <= 10 ? POOL.fast : POOL.normal;
+  const p = overtime ? POOL.late : elapsed <= 15 ? POOL.fast : POOL.normal;
   promptEl.textContent = p[Math.floor(Math.random() * p.length)];
   promptEl.classList.add("praise");
   timeEl.classList.remove("low", "over");
   timeEl.textContent = overtime ? "Done!" : "Done in " + elapsed + "s";
   micEl.textContent = "";
   okBtn.hidden = true; typeBtn.hidden = true; typeBox.hidden = true;
+  helpBtn.hidden = true; helpEl.hidden = true; helpReq++;
   overlay.classList.add("compact");
   chime();
   aiTimer = setTimeout(runAI, sentenceShown ? 0 : 1500);
@@ -639,6 +655,7 @@ function showWord(item) {
   okBtn.hidden = false; typeBtn.hidden = false;
   typeBox.hidden = true; typeInput.value = ""; typeHint.textContent = ""; suggestBtn.hidden = true; sugg = null;
   aiEl.hidden = true; aiEl.textContent = ""; aiDone = false; sentenceText = "";
+  helpBtn.hidden = true; helpEl.hidden = true; helpEl.textContent = ""; helpUsed = false; helpReq++;
   clearTimeout(aiTimer); aiTimer = null; aiReq++;
   overtime = false; stopTension(); timeEl.classList.remove("over"); overlay.classList.remove("compact");
   chime();
@@ -662,6 +679,7 @@ function showWord(item) {
       timeEl.textContent = secs;
       barFill.style.transform = "scaleX(" + (left / (SECONDS * 1000)) + ")";
       timeEl.classList.toggle("low", secs <= 5);
+      if (!helpUsed && !done && left <= (SECONDS - HELP_AT) * 1000) helpBtn.hidden = false;
     } else {
       clearInterval(timerId);
       overtime = true;
@@ -681,6 +699,7 @@ function closeOverlay() {
   stopTension();
   clearTimeout(aiTimer); aiTimer = null; aiReq++;
   overlay.classList.remove("compact");
+  helpReq++;
   stopListening(true);
   bubblesEl.innerHTML = "";
   live = null;
@@ -695,6 +714,32 @@ spinBtn.onclick = spin;
 canvas.onclick = spin;
 nextBtn.onclick = closeOverlay;
 okBtn.onclick = finish;
+
+// ---------- "Need help?" -> fill-in-the-blank hint from Groq ----------
+function askHelp() {
+  helpUsed = true; helpBtn.hidden = true; helpEl.hidden = false;
+  const key = keyInput.value.trim();
+  if (!key) { helpEl.textContent = "Add your Groq key on the main screen to get hints."; return; }
+  helpEl.textContent = "Thinking…";
+  const req = ++helpReq, word = currentWord;
+  const prompt = 'You are a friendly English teacher helping secondary school students (CEFR A2-B1). Target word: "' + word + '". ' +
+    'Write ONE simple, meaningful hint sentence that fits this word, with 2-3 key words replaced by blanks written as ______ . ' +
+    'One blank must be exactly where the target word (in any form) belongs. Never write the target word itself. ' +
+    'Example style: "Japan ______ to create ______ students." Reply with ONLY the sentence.';
+  fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: AI_MODEL, messages: [{ role: "user", content: prompt }], temperature: 0.6 })
+  }).then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => {
+      if (req !== helpReq) return;
+      const t = (d.choices[0].message.content || "").trim().replace(/^["']|["']$/g, "");
+      helpEl.textContent = "";
+      helpEl.append(mk("div", "lbl", "Hint"), mk("p", "", t));
+    })
+    .catch(e => { if (req === helpReq) helpEl.textContent = e === 401 ? "Groq key not accepted." : "Hint unavailable right now."; });
+}
+helpBtn.onclick = askHelp;
 typeBtn.onclick = () => { typeBox.hidden = !typeBox.hidden; if (!typeBox.hidden) typeInput.focus(); };
 typeInput.addEventListener("input", updateSuggestion);
 typeInput.addEventListener("keydown", e => {
